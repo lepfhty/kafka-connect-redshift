@@ -96,7 +96,8 @@ public class RedshiftSinkTask extends SinkTask {
   @Override
   public void flush(Map<TopicPartition, OffsetAndMetadata> map) {
     List<String> s3Urls = new ArrayList<>();
-    for (TopicPartition tp : map.keySet()) {
+    Set<TopicPartition> tps = map.isEmpty() ? tempFiles.keySet() : map.keySet();
+    for (TopicPartition tp : tps) {
       closeTempFiles(tp);
       if (shouldCopyToRedshift(tp)) {
         String url = putFileToS3(tp);
@@ -114,9 +115,13 @@ public class RedshiftSinkTask extends SinkTask {
 
   private void closeTempFiles(TopicPartition tp) {
     try {
-      writers.get(tp).close();
+      BufferedWriter w = writers.get(tp);
+      if (w != null) {
+        w.close();
+        writers.remove(tp);
+      }
     } catch (IOException e) {
-      e.printStackTrace();
+      LOGGER.warn("Couldn't close writer for topic-partition {}", tp, e);
     }
   }
 
