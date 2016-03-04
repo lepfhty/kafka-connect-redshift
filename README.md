@@ -1,6 +1,8 @@
 Kafka Connect Redshift
 ======================
 
+Kafka Sink Connector for Amazon Redshift
+
 ## Build
 
 * Install the Redshift driver into the local maven repository.
