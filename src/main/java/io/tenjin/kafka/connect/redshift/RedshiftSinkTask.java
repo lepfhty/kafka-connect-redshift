@@ -51,7 +51,7 @@ public class RedshiftSinkTask extends SinkTask {
 
     List<String> fields = config.getFields();
     if (fields.size() == 1 && fields.get(0).equals("*")) {
-      fields.clear();
+      fields = new ArrayList<>();
     }
     serializer = new DefaultCopySerializer(fields);
     s3 = new AmazonS3Client(config.getAwsCredentials());
