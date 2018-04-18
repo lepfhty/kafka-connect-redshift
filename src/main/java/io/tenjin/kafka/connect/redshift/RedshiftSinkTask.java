@@ -4,6 +4,7 @@ import com.amazonaws.AmazonClientException;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
+import com.amazonaws.services.s3.model.PutObjectResult;
 import io.tenjin.kafka.connect.redshift.utils.Version;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
@@ -115,7 +116,7 @@ public class RedshiftSinkTask extends SinkTask {
                 }
             } catch (RedshiftCopyFailedException e) {
                 LOGGER.error("Redshift copy failed. ", e);
-                throw new RuntimeException(e);
+                throw new ConnectException(e);
             }
 
         }
@@ -187,10 +188,11 @@ public class RedshiftSinkTask extends SinkTask {
             throw new ConnectException(e);
         }
 
-        String key = config.getTopic() + "/" + manifestFile;
+        String key = config.getTopic() + "/" + manifestFile.getName();
         String url = "s3://" + config.getS3Bucket() + "/" + key;
         try {
-            s3.putObject(config.getS3Bucket(), key, manifestFile);
+            final PutObjectResult putObjectResult = s3.putObject(config.getS3Bucket(), key, manifestFile);
+            LOGGER.info("Manifest file MD5 : "+putObjectResult.getContentMd5());
         } catch (AmazonClientException e) {
             LOGGER.error("Couldn't put manifest file {} to S3 {}.", manifestFile.getName(), url, e);
             manifestFile.delete();
