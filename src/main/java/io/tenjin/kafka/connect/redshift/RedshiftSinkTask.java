@@ -78,6 +78,7 @@ public class RedshiftSinkTask extends SinkTask {
 
     @Override
     public void put(Collection<SinkRecord> collection) {
+        LOGGER.info("Number of records received = "+collection.size());
         try {
             for (SinkRecord record : collection) {
                 appendRecord(record);
