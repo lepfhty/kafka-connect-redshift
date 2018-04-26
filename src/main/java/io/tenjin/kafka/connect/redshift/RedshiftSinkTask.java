@@ -61,7 +61,7 @@ public class RedshiftSinkTask extends SinkTask {
 
     private BufferedWriter getWriter(SinkRecord record, String tableName) {
         TopicPartition tp = new TopicPartition(record.topic(), record.kafkaPartition());
-        BufferedWriter writer = writers.get(tp);
+        BufferedWriter writer = writers.get(key(tp, tableName));
         if (writer == null) {
             try {
                 File f = new File(tempDir, key(tp, tableName) +  ".dsv");
