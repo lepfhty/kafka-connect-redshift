@@ -8,6 +8,7 @@ import com.amazonaws.services.s3.model.PutObjectResult;
 import io.tenjin.kafka.connect.redshift.utils.Version;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.errors.RetriableException;
 import org.apache.kafka.connect.sink.SinkRecord;
@@ -34,8 +35,8 @@ public class RedshiftSinkTask extends SinkTask {
     private RedshiftSinkTaskConfig config;
 
     private File tempDir;
-    private Map<TopicPartition, File> tempFiles;
-    private Map<TopicPartition, BufferedWriter> writers;
+    private Map<String, File> tempFiles;
+    private Map<String, BufferedWriter> writers;
 
     private CopySerializer serializer;
     private AmazonS3 s3;
@@ -58,15 +59,15 @@ public class RedshiftSinkTask extends SinkTask {
         s3 = new AmazonS3Client(config.getAwsCredentials());
     }
 
-    private BufferedWriter getWriter(SinkRecord record) {
+    private BufferedWriter getWriter(SinkRecord record, String tableName) {
         TopicPartition tp = new TopicPartition(record.topic(), record.kafkaPartition());
         BufferedWriter writer = writers.get(tp);
         if (writer == null) {
             try {
-                File f = new File(tempDir, tp + ".dsv");
-                tempFiles.put(tp, f);
+                File f = new File(tempDir, key(tp, tableName) +  ".dsv");
+                tempFiles.put(key(tp, tableName), f);
                 writer = new BufferedWriter(new FileWriter(f));
-                writers.put(tp, writer);
+                writers.put(key(tp, tableName), writer);
             } catch (IOException e) {
                 LOGGER.error("Couldn't create file for topic-partition {}.", tp, e);
                 throw new ConnectException(e);
@@ -85,23 +86,13 @@ public class RedshiftSinkTask extends SinkTask {
             LOGGER.warn("Failed to append records. Retrying batch.", e);
             throw new RetriableException(e);
         }
-    }
 
-    private void appendRecord(SinkRecord record) throws IOException {
-        BufferedWriter writer = getWriter(record);
-        String row = serializer.serializeRecord(record);
-        writer.append(row);
-        writer.newLine();
-    }
-
-    @Override
-    public void flush(Map<TopicPartition, OffsetAndMetadata> map) {
         List<String> s3Urls = new ArrayList<>();
-        Set<TopicPartition> tps = map.isEmpty() ? tempFiles.keySet() : map.keySet();
-        for (TopicPartition tp : tps) {
-            closeTempFiles(tp);
-            if (shouldCopyToRedshift(tp)) {
-                String url = putFileToS3(tp);
+        Set<String> keys = tempFiles.keySet();
+        for (String key : keys) {
+            closeTempFiles(key);
+            if (shouldCopyToRedshift(key)) {
+                String url = putFileToS3(key);
                 if (url != null)
                     s3Urls.add(url);
             }
@@ -120,45 +111,59 @@ public class RedshiftSinkTask extends SinkTask {
             }
 
         }
+    }
+
+    private void appendRecord(SinkRecord record) throws IOException {
+        final Struct recordValue = (Struct) record.value();
+        final String tableName = (String)recordValue.get("tableName");
+        BufferedWriter writer = getWriter(record, tableName);
+        String row = serializer.serializeRecord(record);
+        writer.append(row);
+        writer.newLine();
+    }
+
+    @Override
+    public void flush(Map<TopicPartition, OffsetAndMetadata> map) {
+
 
     }
 
 
-    private void closeTempFiles(TopicPartition tp) {
+    private void closeTempFiles(String key) {
         try {
-            BufferedWriter w = writers.get(tp);
+            BufferedWriter w = writers.get(key);
             if (w != null) {
                 w.close();
-                writers.remove(tp);
+                writers.remove(key);
             }
         } catch (IOException e) {
-            LOGGER.warn("Couldn't close writer for topic-partition {}", tp, e);
+            LOGGER.warn("Couldn't close writer for topic-partition {}", key, e);
         }
     }
 
-    private boolean shouldCopyToRedshift(TopicPartition tp) {
+    private boolean shouldCopyToRedshift(String key) {
         return true;
     }
 
-    private String putFileToS3(TopicPartition tp) {
-        File file = tempFiles.get(tp);
+    private String putFileToS3(String fileName) {
+        File file = tempFiles.get(fileName);
         if (file == null || !file.exists() || file.length() == 0)
             return null;
 
         SimpleDateFormat f = new SimpleDateFormat("yyyy/MM/dd");
-        String key = String.format("%s/%s/%s", config.getTopic(), f.format(new Date()), file.getName());
+        String key = String.format("%s/%s/%s/%s", config.getTopic(), f.format(new Date()), fileName.split("-")[2] , file.getName());
         String url = "s3://" + config.getS3Bucket() + "/" + key;
         try {
             s3.putObject(config.getS3Bucket(), key, file);
             if (file.delete()) {
-                tempFiles.remove(tp);
-                writers.remove(tp);
+                tempFiles.remove(fileName);
+                writers.remove(fileName);
             }
         } catch (AmazonClientException e) {
             LOGGER.warn("Couldn't put file {} to S3 {}.", file.getName(), url, e);
             LOGGER.warn("Attempting to reopen writer for appending.");
             try {
-                writers.put(tp, new BufferedWriter(new FileWriter(file)));
+                writers.put(fileName, new BufferedWriter(new FileWriter(file)));
             } catch (IOException e1) {
                 LOGGER.error("Couldn't reopen writer for appending {}.", file.getName(), e1);
                 throw new ConnectException(e1);
@@ -229,6 +234,10 @@ public class RedshiftSinkTask extends SinkTask {
     @Override
     public void stop() {
 
+    }
+
+    private String key(TopicPartition tp, String tableName) {
+        return new StringBuilder().append(tp.toString()).append("-").append(tableName).toString();
     }
 
     @Override
