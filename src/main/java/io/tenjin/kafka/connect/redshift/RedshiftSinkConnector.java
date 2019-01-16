@@ -1,6 +1,7 @@
 package io.tenjin.kafka.connect.redshift;
 
 import io.tenjin.kafka.connect.redshift.utils.Version;
+import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.connect.connector.Task;
 import org.apache.kafka.connect.sink.SinkConnector;
 
@@ -32,6 +33,11 @@ public class RedshiftSinkConnector extends SinkConnector {
   @Override
   public void stop() {
 
+  }
+
+  @Override
+  public ConfigDef config() {
+    return RedshiftSinkConnectorConfig.config;
   }
 
   @Override
